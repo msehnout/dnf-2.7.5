@@ -670,7 +670,7 @@ class Repo(dnf.conf.RepoConf):
         result = handle._perform()
         if handle.progresscb:
             self._md_pload.end()
-
+        # DNSSEC: Load metadata???
         return Metadata(result, handle)
 
     def _handle_load_with_pubring(self, handle):
@@ -685,6 +685,7 @@ class Repo(dnf.conf.RepoConf):
         return self._handle_new_remote(self.pkgdir, mirror_setup=False)
 
     def _handle_new_remote(self, destdir, mirror_setup=True):
+        # DNSSEC: tady vznika ten handle???
         h = _Handle(self.repo_gpgcheck, self._max_mirror_tries,
                     self.max_parallel_downloads)
         h.varsub = _subst2tuples(self._substitutions)
@@ -925,6 +926,13 @@ class Repo(dnf.conf.RepoConf):
             msg = _("Failed to synchronize cache for repo '%s'") % (self.id)
             raise dnf.exceptions.RepoError(msg)
         self._expired = False
+        # DNSSEC: tady je ulozena cesta k lokalnimu repomd.xml self._repomd_fn
+        # DNSSEC: takze bych to tu asi mohl otevrit a porovnat
+
+        import dnf.dnssec.dnssecmdverification as dnsmd
+        import dnf.dnssec.dnsseckeyverification as dnssec
+        logger.info(dnssec.any_msg("Repository metadata considered: " + str(dnsmd.verify_md(self._repomd_fn))))
+
         return True
 
     def _md_expire_cache(self):

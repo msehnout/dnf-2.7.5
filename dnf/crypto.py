@@ -132,7 +132,7 @@ class Key(object):
     def __init__(self, key, subkey):
         self.id_ = subkey.keyid
         self.fingerprint = subkey.fpr
-        self.raw_key = None
+        self.raw_key = None # DNSSEC: raw_key je list bytu, ktery obsahuje klic v ascii armor
         self.timestamp = subkey.timestamp
         self.url = None
         self.userid = key.uids[0].uid

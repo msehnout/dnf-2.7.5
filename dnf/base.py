@@ -68,6 +68,8 @@ import sys
 import time
 import shutil
 
+import dnf.dnssec.dnsseckeyverification as dnssec
+
 logger = logging.getLogger("dnf")
 
 
@@ -98,7 +100,18 @@ class Base(object):
         self._update_security_filters = {}
         self._allow_erasing = False
         self._revert_reason = []
+        # DNSSEC: This is a set of repositories, whose keys have already
+        # DNSSEC: been imported. At least I think so...
         self._repo_set_imported_gpg_keys = set()
+
+    @staticmethod
+    def check_imported_keys_validity():
+        keys = dnssec.RpmImportedKeys()
+        logger.info(dnssec.any_msg("Testing already imported keys for their validity."))
+        for key in keys.keys:
+            result = dnssec.DNSSECKeyVerification.verify(key)
+            logger.info(dnssec.any_msg("Key associated with identity " + key.email +
+                                       " was tested with result: " + str(result)))
 
     def __enter__(self):
         return self
@@ -2170,6 +2183,10 @@ class Base(object):
         """Retrieve a key for a package. If needed, use the given
         callback to prompt whether the key should be imported.
 
+        DNSSEC: Tady se importují ještě neznáme klíče pokud jsou uvedeny v konfiguráku
+        DNSSEC: pro tento repozitář. Tzn. pokud jsou uvedeny gpgkey=URL. Tím pádem předpokládám, že toto místo bude
+        DNSSEC: první kandidát na "pomoc" od DNSSEC.
+
         :param po: the package object to retrieve the key of
         :param askcb: Callback function to use to ask permission to
            import a key.  The arguments *askck* should take are the
@@ -2192,7 +2209,9 @@ class Base(object):
 
         user_cb_fail = False
         self._repo_set_imported_gpg_keys.add(repo.id)
+        logger.debug("DNSSEC: Starting key receive ...")
         for keyurl in keyurls:
+            logger.debug("DNSSEC: keyurl="+keyurl)
             keys = dnf.crypto.retrieve(keyurl, repo)
 
             for info in keys:
@@ -2202,6 +2221,12 @@ class Base(object):
                     logger.info(msg, keyurl, info.short_id)
                     continue
 
+                # DNS Extension: create a key object, pass it to the verification class
+                # and print its result.
+                dns_input_key = dnssec.KeyInfo.from_rpm_key_object(info.userid, info.raw_key)
+                dns_result = dnssec.DNSSECKeyVerification.verify(dns_input_key)
+                logger.info(dnssec.nice_user_msg(dns_input_key, dns_result))
+
                 # Try installing/updating GPG key
                 info.url = keyurl
                 dnf.crypto.log_key_import(info)
@@ -2209,7 +2234,18 @@ class Base(object):
                 if self.conf.assumeno:
                     rc = False
                 elif self.conf.assumeyes:
-                    rc = True
+                    # DNS Extension: We assume, that the key is trusted in case it is valid,
+                    # its existence is explicitly denied or in case the domain is not signed
+                    # and therefore there is no way to know for sure (this is mainly for
+                    # backward compatibility)
+                    if dns_result == dnssec.Validity.VALID or \
+                            dns_result == dnssec.Validity.PROVEN_NONEXISTENCE or \
+                            dns_result == dnssec.Validity.RESULT_NOT_SECURE: # <- DNSSEC: Really?
+                        rc = True
+                        logger.info(dnssec.any_msg("The key has been approved."))
+                    else:
+                        rc = False
+                        logger.info(dnssec.any_msg("The key has been rejected."))
 
                 # grab the .sig/.asc for the keyurl, if it exists if it
                 # does check the signature on the key if it is signed by
